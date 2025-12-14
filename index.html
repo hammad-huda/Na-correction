@@ -11,10 +11,14 @@
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-top: 16px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .warn { color: #b00020; font-weight: 700; }
+    .muted { color: #555; }
   </style>
 </head>
 <body>
   <h1>Sodium Correction Calculator</h1>
+  <p class="muted">
+    Mixing model: Na_goal = (Na_current·TBW + Na_IVF·x) / (TBW + x). Solves for x.
+  </p>
 
   <div class="card">
     <label>Sex</label>
@@ -37,6 +41,8 @@
       <option value="D5W">D5W (Na = 0)</option>
       <option value="0.45NS">0.45% NS (Na = 77)</option>
       <option value="0.9NS">0.9% NS (Na = 154)</option>
+      <option value="2NS">2% Saline (Na = 342)</option>
+      <option value="3NS">3% Saline (Na = 513)</option>
     </select>
 
     <button id="calc">Calculate</button>
@@ -46,14 +52,16 @@
 
 <script>
   function calcTBW(sex, weightKg) {
-    const factor = sex === "male" ? 0.6 : 0.5;
-    return factor * weightKg;
+    const factor = (sex === "male") ? 0.6 : 0.5;
+    return factor * weightKg; // liters
   }
 
   function naIVF(type) {
     if (type === "D5W") return 0;
-    if (type === "0.45NS") return 77; // change to 75 if you prefer
+    if (type === "0.45NS") return 77;   // change to 75 if you want; keep label consistent
     if (type === "0.9NS") return 154;
+    if (type === "2NS") return 342;
+    if (type === "3NS") return 513;
     throw new Error("Unknown IVF type");
   }
 
@@ -71,14 +79,20 @@
     const out = document.getElementById("out");
     out.style.display = "block";
 
+    // Basic validation
     if (![wt, naCur, naGoal].every(Number.isFinite)) {
       out.innerHTML = `<div class="warn">Please enter weight, current Na, and goal Na.</div>`;
+      return;
+    }
+    if (wt <= 0) {
+      out.innerHTML = `<div class="warn">Weight must be > 0.</div>`;
       return;
     }
 
     const TBW = calcTBW(sex, wt);
     const NaInf = naIVF(ivf);
 
+    // x = TBW*(Na_goal - Na_current) / (Na_IVF - Na_goal)
     const denom = (NaInf - naGoal);
 
     if (denom === 0) {
@@ -87,11 +101,12 @@
     }
 
     const xLiters = TBW * (naGoal - naCur) / denom;
-    const xmL = xLiters * 1000;
+    const x_mL = xLiters * 1000;
+    const rate_mL_per_hr = x_mL / 24;
 
     let warning = "";
     if (xLiters < 0) {
-      warning = `<div class="warn">Result is negative — this fluid cannot move Na toward your selected goal.</div>`;
+      warning = `<div class="warn">Result is negative — this fluid cannot move Na toward the selected goal (check fluid choice/goal direction).</div>`;
     }
 
     out.innerHTML = `
@@ -106,7 +121,9 @@
         <br/>
         x = ${fmt(TBW,2)} × (${naGoal} − ${naCur}) / (${NaInf} − ${naGoal})
         <br/>
-        x = <b>${fmt(xLiters,3)} L</b> = <b>${fmt(xmL,0)} mL</b>
+        x = <b>${fmt(xLiters,3)} L</b> = <b>${fmt(x_mL,0)} mL</b>
+        <br/>
+        Rate over 24h = <b>${fmt(rate_mL_per_hr,1)} mL/hr</b>
       </div>
     `;
   });
