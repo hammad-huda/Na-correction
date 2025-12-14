@@ -1,0 +1,29 @@
+function calcTBW(sex, weightKg) {
+  const factor = sex === "male" ? 0.6 : 0.5; // adjust if you want 0.55, elderly, etc.
+  return factor * weightKg; // liters
+}
+
+function naIVF(type) {
+  // keep 75 if you prefer; just label it in the UI
+  if (type === "D5W") return 0;
+  if (type === "0.45NS") return 77;
+  if (type === "0.9NS") return 154;
+  throw new Error("Unknown IVF type");
+}
+
+// Returns liters of chosen IVF needed to reach goal (idealized mixing model)
+function calcLitersNeeded(sex, weightKg, naCurrent, naGoal, ivfType) {
+  const TBW = calcTBW(sex, weightKg);
+  const NaInf = naIVF(ivfType);
+
+  const denom = (NaInf - naGoal);
+  if (denom === 0) {
+    return { TBW, NaInf, liters: null, warning: "Na_IVF equals goal Na; cannot solve (division by zero)." };
+  }
+
+  const liters = TBW * (naGoal - naCurrent) / denom;
+
+  let warning = null;
+  if (liters < 0) warning = "Result is negative—this IVF cannot move Na toward the selected goal.";
+  return { TBW, NaInf, liters, warning };
+}
