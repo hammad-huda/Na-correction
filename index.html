@@ -6,7 +6,7 @@
   <title>Sodium Correction Calculator</title>
   <style>
     body { font-family: system-ui, Arial; max-width: 760px; margin: 24px auto; padding: 0 16px; }
-    label { display:block; margin-top: 12px; font-weight: 600; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
     input, select, button { width: 100%; padding: 10px; margin-top: 6px; font-size: 16px; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-top: 16px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
@@ -18,41 +18,25 @@
   <h1>Sodium Correction Calculator</h1>
   <p class="muted">
     Mixing model: Na_goal = (Na_current·TBW + Na_IVF·x) / (TBW + x). Solves for x.
-    <br/>
-    Optional: Corrects Na for hyperglycemia (Corrected Na = Na_measured + factor × ((Glucose − baseline)/100)).
   </p>
 
   <div class="card">
-    <label>Sex</label>
+    <label for="sex">Sex</label>
     <select id="sex">
       <option value="male">Male (TBW = 0.6 × weight)</option>
       <option value="female">Female (TBW = 0.5 × weight)</option>
     </select>
 
-    <label>Weight (kg)</label>
+    <label for="wt">Weight (kg)</label>
     <input id="wt" type="number" step="0.1" placeholder="e.g., 80" />
 
-    <label>Current Na (mEq/L)</label>
+    <label for="naCur">Current Na (mEq/L)</label>
     <input id="naCur" type="number" step="1" placeholder="e.g., 118" />
 
-    <!-- NEW: Hyperglycemia correction inputs -->
-    <label>Glucose (mg/dL) <span class="muted">(optional; for corrected Na)</span></label>
-    <input id="glc" type="number" step="1" placeholder="e.g., 516" />
-
-    <label>Na correction factor (mEq/L per 100 mg/dL glucose)</label>
-    <select id="naCorrFactor">
-      <option value="1.6" selected>1.6 (traditional)</option>
-      <option value="2.4">2.4 (alternative)</option>
-    </select>
-
-    <label>Baseline glucose (mg/dL)</label>
-    <input id="glcBase" type="number" step="1" value="100" />
-    <!-- /NEW -->
-
-    <label>Goal Na (mEq/L)</label>
+    <label for="naGoal">Goal Na (mEq/L)</label>
     <input id="naGoal" type="number" step="1" placeholder="e.g., 124" />
 
-    <label>IV Fluid</label>
+    <label for="ivf">IV Fluid</label>
     <select id="ivf">
       <option value="D5W">D5W (Na = 0)</option>
       <option value="0.45NS">0.45% NS (Na = 77)</option>
@@ -61,121 +45,77 @@
       <option value="3NS">3% Saline (Na = 513)</option>
     </select>
 
-    <button id="calc">Calculate</button>
+    <button id="calc" type="button">Calculate</button>
   </div>
 
   <div id="out" class="card" style="display:none;"></div>
 
-<script>
-  function calcTBW(sex, weightKg) {
-    const factor = (sex === "male") ? 0.6 : 0.5;
-    return factor * weightKg; // liters
-  }
+  <script>
+    const sodiumByFluid = {
+      D5W: 0,
+      "0.45NS": 77,
+      "0.9NS": 154,
+      "2NS": 342,
+      "3NS": 513
+    };
 
-  function naIVF(type) {
-    if (type === "D5W") return 0;
-    if (type === "0.45NS") return 77;   // change to 75 if you want; keep label consistent
-    if (type === "0.9NS") return 154;
-    if (type === "2NS") return 342;
-    if (type === "3NS") return 513;
-    throw new Error("Unknown IVF type");
-  }
+    document.getElementById("calc").addEventListener("click", () => {
+      const sex = document.getElementById("sex").value;
+      const weight = document.getElementById("wt").valueAsNumber;
+      const naCurrent = document.getElementById("naCur").valueAsNumber;
+      const naGoal = document.getElementById("naGoal").valueAsNumber;
+      const fluid = document.getElementById("ivf").value;
+      const out = document.getElementById("out");
 
-  function fmt(n, digits=2) {
-    return Number.isFinite(n) ? n.toFixed(digits) : String(n);
-  }
+      out.style.display = "block";
 
-  function correctedNaForGlucose(naMeasured, glucose, factor, baseline=100) {
-    if (!Number.isFinite(glucose)) {
-      return { naCorrected: naMeasured, applied: false, deltaGlc: 0, correction: 0, baseline };
-    }
-    const base = Number.isFinite(baseline) ? baseline : 100;
-    const deltaGlc = Math.max(0, glucose - base);
-    const correction = factor * (deltaGlc / 100);
-    return { naCorrected: naMeasured + correction, applied: true, deltaGlc, correction, baseline: base };
-  }
+      if (![weight, naCurrent, naGoal].every(Number.isFinite)) {
+        out.innerHTML = '<div class="warn">Please enter weight, current Na, and goal Na.</div>';
+        return;
+      }
 
-  document.getElementById("calc").addEventListener("click", () => {
-    const sex = document.getElementById("sex").value;
-    const wt = parseFloat(document.getElementById("wt").value);
+      if (weight <= 0) {
+        out.innerHTML = '<div class="warn">Weight must be greater than 0.</div>';
+        return;
+      }
 
-    const naMeasured = parseFloat(document.getElementById("naCur").value);
-    const naGoal = parseFloat(document.getElementById("naGoal").value);
+      const tbwFactor = sex === "male" ? 0.6 : 0.5;
+      const tbw = tbwFactor * weight;
+      const naInf = sodiumByFluid[fluid];
+      const denominator = naInf - naGoal;
 
-    const glc = parseFloat(document.getElementById("glc").value);
-    const glcBase = parseFloat(document.getElementById("glcBase").value);
-    const naCorrFactor = parseFloat(document.getElementById("naCorrFactor").value) || 1.6;
+      if (denominator === 0) {
+        out.innerHTML = '<div class="warn">IV fluid Na equals goal Na, so the equation has a zero denominator.</div>';
+        return;
+      }
 
-    const ivf = document.getElementById("ivf").value;
+      const volumeLiters = tbw * (naGoal - naCurrent) / denominator;
+      const volumeMl = volumeLiters * 1000;
+      const rateMlPerHour = volumeMl / 24;
 
-    const out = document.getElementById("out");
-    out.style.display = "block";
+      const warning = volumeLiters < 0
+        ? '<div class="warn">The calculated volume is negative. Check the fluid choice and goal Na.</div>'
+        : "";
 
-    // Basic validation
-    if (![wt, naMeasured, naGoal].every(Number.isFinite)) {
-      out.innerHTML = `<div class="warn">Please enter weight, current Na, and goal Na.</div>`;
-      return;
-    }
-    if (wt <= 0) {
-      out.innerHTML = `<div class="warn">Weight must be &gt; 0.</div>`;
-      return;
-    }
+      out.innerHTML = `
+        ${warning}
+        <h2>Results</h2>
+        <p><b>TBW</b> = ${tbwFactor} × ${weight} = <b>${tbw.toFixed(2)} L</b></p>
+        <p><b>Current Na</b> = ${naCurrent} mEq/L</p>
+        <p><b>Na<sub>IVF</sub></b> = <b>${naInf} mEq/L</b></p>
 
-    const TBW = calcTBW(sex, wt);
-    const NaInf = naIVF(ivf);
-
-    // Hyperglycemia correction (optional)
-    const corr = correctedNaForGlucose(
-      naMeasured,
-      glc,
-      naCorrFactor,
-      Number.isFinite(glcBase) ? glcBase : 100
-    );
-    const naCurEffective = corr.naCorrected; // use corrected Na in the mixing model
-
-    // x = TBW*(Na_goal - Na_current) / (Na_IVF - Na_goal)
-    const denom = (NaInf - naGoal);
-
-    if (denom === 0) {
-      out.innerHTML = `<div class="warn">Na<sub>IVF</sub> equals goal Na — cannot solve (division by zero).</div>`;
-      return;
-    }
-
-    const xLiters = TBW * (naGoal - naCurEffective) / denom;
-    const x_mL = xLiters * 1000;
-    const rate_mL_per_hr = x_mL / 24;
-
-    let warning = "";
-    if (xLiters < 0) {
-      warning = `<div class="warn">Result is negative — this fluid cannot move Na toward the selected goal (check fluid choice/goal direction).</div>`;
-    }
-
-    const naLine = corr.applied
-      ? `<p><b>Na (measured)</b> = ${naMeasured} mEq/L</p>
-         <p><b>Corrected Na</b> = <b>${fmt(naCurEffective,2)} mEq/L</b>
-           <br/><span class="muted">ΔGlucose = ${fmt(corr.deltaGlc,0)} mg/dL; correction = ${fmt(corr.correction,2)} mEq/L (factor ${fmt(naCorrFactor,1)}, baseline ${fmt(corr.baseline,0)})</span>
-         </p>`
-      : `<p><b>Na (current)</b> = ${naMeasured} mEq/L <span class="muted">(no glucose entered)</span></p>`;
-
-    out.innerHTML = `
-      ${warning}
-      <h2>Results</h2>
-      <p><b>TBW</b> = ${sex === "male" ? "0.6" : "0.5"} × ${wt} = <b>${fmt(TBW,2)} L</b></p>
-      ${naLine}
-      <p><b>Na<sub>IVF</sub></b> = <b>${NaInf} mEq/L</b></p>
-
-      <h3>Equation (showing work)</h3>
-      <div class="mono">
-        x = TBW × (Na_goal − Na_current) / (Na_IVF − Na_goal)
-        <br/>
-        x = ${fmt(TBW,2)} × (${naGoal} − ${fmt(naCurEffective,2)}) / (${NaInf} − ${naGoal})
-        <br/>
-        x = <b>${fmt(xLiters,3)} L</b> = <b>${fmt(x_mL,0)} mL</b>
-        <br/>
-        Rate over 24h = <b>${fmt(rate_mL_per_hr,1)} mL/hr</b>
-      </div>
-    `;
-  });
-</script>
+        <h3>Equation (showing work)</h3>
+        <div class="mono">
+          x = TBW × (Na_goal − Na_current) / (Na_IVF − Na_goal)
+          <br />
+          x = ${tbw.toFixed(2)} × (${naGoal} − ${naCurrent}) / (${naInf} − ${naGoal})
+          <br />
+          x = <b>${volumeLiters.toFixed(3)} L</b> = <b>${volumeMl.toFixed(0)} mL</b>
+          <br />
+          Rate over 24h = <b>${rateMlPerHour.toFixed(1)} mL/hr</b>
+        </div>
+      `;
+    });
+  </script>
 </body>
 </html>
